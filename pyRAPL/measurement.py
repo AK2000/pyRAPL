@@ -47,8 +47,9 @@ class Measurement:
         self.label = label
         self._energy_begin = None
         self._ts_begin = None
-        self._results = None
+        self._results = []
         self._output = output if output is not None else PrintOutput()
+        self._ts_last
 
         self._sensor = pyRAPL._sensor
 
@@ -58,6 +59,7 @@ class Measurement:
         """
         self._energy_begin = self._sensor.energy()
         self._ts_begin = time_ns()
+        self._ts_last = 0
 
     def __enter__(self):
         """use Measurement as a context """
@@ -69,21 +71,26 @@ class Measurement:
         if(exc_type is None):
             self.export()
 
-    def end(self):
-        """
-        End energy consumption recording
-        """
-        ts_end = time_ns()
-        energy_end = self._sensor.energy()
+    def update(self):
+        ts = time_ns() - self._ts_begin
+        energy = self._sensor.energy()
+        delta = energy - self._energy_begin
+        duration = ts - self._ts_last
+        self._ts_last = ts
 
-        delta = energy_end - self._energy_begin
-        duration = ts_end - self._ts_begin
+
         pkg = delta[0::2]  # get odd numbers
         pkg = pkg if empty_energy_result(pkg) else None  # set result to None if its contains only -1
         dram = delta[1::2]  # get even numbers
         dram = dram if empty_energy_result(dram) else None  # set result to None if its contains only -1
 
-        self._results = Result(self.label, self._ts_begin / 1000000000, duration / 1000, pkg, dram)
+        self._results.append(Result(self.label, ts / 1000, duration / 1000, pkg, dram))
+
+    def end(self):
+        """
+        End energy consumption recording
+        """
+        self.update()
 
     def export(self, output: Output = None):
         """
@@ -92,16 +99,18 @@ class Measurement:
         :param output: output that will handle the measure, if None, the default output will be used
         """
         if output is None:
-            self._output.add(self._results)
+            for result in results:
+                self._output.add(result)
         else:
-            output.add(self._results)
+            for result in results:
+                output.add(result)
 
     @property
     def result(self) -> Result:
         """
         Access to the measurement data
         """
-        return self._results
+        return self._results[-1]
 
 
 def measureit(_func=None, *, output: Output = None, number: int = 1):
@@ -120,7 +129,7 @@ def measureit(_func=None, *, output: Output = None, number: int = 1):
             for i in range(number):
                 val = func(*args, **kwargs)
             sensor.end()
-            sensor._results = sensor._results / number
+            sensor._results[-1] = sensor._results[-1] / number
             sensor.export()
             return val
         return wrapper_measure
